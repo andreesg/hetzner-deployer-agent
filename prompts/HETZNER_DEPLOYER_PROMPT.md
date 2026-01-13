@@ -186,15 +186,78 @@ Implement in deploy scripts:
 
 ---
 
+## CAPACITY PLANNING (AUTO-DETECT OR DEFAULT)
+
+You MUST estimate infrastructure sizing based on signals in the app repo.
+
+### Where to look for capacity hints
+Scan these locations for scale indicators:
+- `README.md`, `docs/` — mentions of expected users, traffic, scale
+- `.env.example` — pool sizes, worker counts, cache sizes
+- `docker-compose.yml` — existing resource limits, replica counts
+- `config/` files — connection pool sizes, thread counts
+- `package.json` / `pyproject.toml` — presence of queue workers (bull, celery, sidekiq)
+- CI config — test parallelism hints at codebase size
+
+### Capacity signals to detect
+| Signal | Indicates | Sizing Impact |
+|--------|-----------|---------------|
+| "enterprise", "B2B SaaS" | Medium-high traffic | Larger VPS |
+| "MVP", "prototype", "side project" | Low traffic | Smallest viable |
+| Worker/queue dependencies | Background processing | +CPU cores |
+| Redis/cache dependencies | Session/cache needs | +RAM |
+| Large test suite | Complex app | Larger build resources |
+| Multiple services in compose | Microservices | More RAM |
+| ML/AI dependencies | Compute-heavy | GPU or high-CPU |
+
+### Default sizing (when no signals found)
+
+| Environment | VPS Type | vCPU | RAM | Volume |
+|-------------|----------|------|-----|--------|
+| dev | CX22 | 2 | 4GB | 20GB |
+| staging | CX22 | 2 | 4GB | 20GB |
+| prod | CX32 | 4 | 8GB | 40GB |
+
+### Postgres sizing defaults
+| Environment | `shared_buffers` | `max_connections` | `work_mem` |
+|-------------|------------------|-------------------|------------|
+| dev | 256MB | 50 | 4MB |
+| staging | 256MB | 50 | 4MB |
+| prod | 2GB | 100 | 16MB |
+
+### Scaling recommendations
+In the bundle README, include a "Scaling Guide" section with:
+- When to upgrade VPS tier (CPU >80% sustained, RAM >85%)
+- How to add read replicas for Postgres
+- When to consider managed database (Hetzner doesn't offer this — suggest external)
+- Horizontal scaling options (load balancer + multiple VPS)
+
+### Output
+Document detected/assumed capacity in:
+```
+bundle/config/detected.json
+{
+  "capacity": {
+    "detected_signals": ["MVP mentioned in README", "single developer"],
+    "recommendation": "starter",
+    "vps_type": { "dev": "CX22", "staging": "CX22", "prod": "CX32" },
+    "volume_gb": { "dev": 20, "staging": 20, "prod": 40 },
+    "postgres_shared_buffers": { "dev": "256MB", "staging": "256MB", "prod": "2GB" }
+  }
+}
+```
+
+---
+
 ## INFRA BASELINE (HETZNER VPS)
-For **each environment (dev/staging/prod)**:
-- One VPS (Ubuntu LTS)
-- One attached volume mounted at `/data`
+For **each environment (dev/staging/prod)**, use the capacity plan above:
+- One VPS (Ubuntu LTS) — size from capacity plan
+- One attached volume mounted at `/data` — size from capacity plan
 - Firewall:
   - 80/443 from anywhere
   - 22 only from allowed CIDRs
 - Docker + Compose installed via cloud-init
-- Postgres data under `/data/postgres`
+- Postgres data under `/data/postgres` — tuned per capacity plan
 - Automatic OS security updates
 - fail2ban enabled
 

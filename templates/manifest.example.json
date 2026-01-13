@@ -1,0 +1,35 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2024-01-15T10:30:00Z",
+  "prompt_hash": "sha256:abc123...",
+  "app_repo_commit": "def456...",
+  "files": {
+    "README.md": {
+      "generated_hash": "sha256:111...",
+      "current_hash": "sha256:111...",
+      "managed": true,
+      "user_modified": false,
+      "last_updated": "2024-01-15T10:30:00Z"
+    },
+    "deploy/compose/docker-compose.yml": {
+      "generated_hash": "sha256:222...",
+      "current_hash": "sha256:333...",
+      "managed": true,
+      "user_modified": true,
+      "last_updated": "2024-01-15T10:30:00Z"
+    },
+    "infra/terraform/envs/prod/main.tf": {
+      "generated_hash": "sha256:444...",
+      "current_hash": "sha256:444...",
+      "managed": true,
+      "user_modified": false,
+      "last_updated": "2024-01-15T10:30:00Z"
+    }
+  },
+  "detection_summary": {
+    "backend": "node",
+    "frontend": "next",
+    "database": "postgres",
+    "migrations": "prisma"
+  }
+}

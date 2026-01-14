@@ -540,11 +540,15 @@ while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
   fi
 
   if [[ "$INTERACTIVE" == "true" ]]; then
-    # Interactive mode: run Claude without -p flag to allow responding to prompts
-    # The prompt is passed as argument (not with -p which is print-and-exit mode)
+    # Interactive mode: start Claude with instruction to read the prompt file
     info "Running in interactive mode - you can respond to prompts"
     warn "Note: In interactive mode, output capture is limited. Check the bundle directory for results."
-    claude "${CLAUDE_ARGS[@]}" "$(cat "$PROMPT_INPUT_FILE")"
+    echo
+    bold "Starting Claude Code. Your prompt is ready."
+    info "Just press Enter or type 'proceed' to start generation."
+    echo
+    # Pass a short instruction that tells Claude to read and execute the full prompt
+    claude "${CLAUDE_ARGS[@]}" "Read the file at ${PROMPT_INPUT_FILE} and execute all instructions in it. This is an infrastructure generation task - generate ALL required files as specified in that prompt."
     # After claude exits, capture what we can
     echo "Interactive session completed" > "$CLAUDE_OUTPUT_FILE"
   else

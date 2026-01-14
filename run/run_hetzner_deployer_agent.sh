@@ -72,6 +72,7 @@ ONLY_COMPONENTS=""
 APP_REPO=""
 MODEL=""
 INTERACTIVE="false"
+ENVIRONMENTS="dev,staging,prod"
 
 print_usage() {
   cat <<EOF
@@ -84,6 +85,8 @@ Modes:
 Options:
   --app-repo <path>         Path to application repo (required)
   --output <path>           Output directory for new bundle (new mode only)
+  --environments <list>     Environments to generate (default: dev,staging,prod)
+                            Options: dev, staging, prod (comma-separated)
   --model <model>           Claude model to use (e.g., sonnet, opus, haiku)
   --interactive             Run Claude interactively (paste instruction when CLI opens)
   --dry-run                 Preview changes without making them (update mode only)
@@ -101,6 +104,9 @@ Examples:
 
   # Create new bundle with explicit output
   $(basename "$0") --new --app-repo /path/to/app --output /path/to/infra-bundle
+
+  # Production only (single VPS)
+  $(basename "$0") --app-repo /path/to/app --output /path/to/bundle --environments prod
 
   # Update existing bundle
   $(basename "$0") --update /path/to/bundle --app-repo /path/to/app
@@ -137,6 +143,14 @@ while [[ $# -gt 0 ]]; do
       INTERACTIVE="true"
       shift
       ;;
+    --environments)
+      ENVIRONMENTS="$2"
+      shift 2
+      ;;
+    --environments=*)
+      ENVIRONMENTS="${1#*=}"
+      shift
+      ;;
     --dry-run)
       DRY_RUN="true"
       shift
@@ -168,6 +182,17 @@ command -v claude >/dev/null 2>&1 || die "claude CLI not found. Install Claude C
 command -v git >/dev/null 2>&1 || die "git not found."
 [[ -f "$PROMPT_FILE" ]] || die "Missing prompt: ${PROMPT_FILE}"
 mkdir -p "$RUNS_DIR"
+
+# --- Validate environments ---
+VALID_ENVS="dev staging prod"
+IFS=',' read -ra ENV_ARRAY <<< "$ENVIRONMENTS"
+for env in "${ENV_ARRAY[@]}"; do
+  env_trimmed="$(echo "$env" | tr -d ' ')"
+  if [[ ! " $VALID_ENVS " =~ " $env_trimmed " ]]; then
+    die "Invalid environment: '$env_trimmed'. Valid options: dev, staging, prod"
+  fi
+done
+ENVIRONMENTS="$(IFS=','; echo "${ENV_ARRAY[*]}" | tr -d ' ')"
 
 bold "Hetzner Deployer Agent"
 echo
@@ -369,6 +394,7 @@ app_repo: ${APP_REPO}
 bundle_dir: ${BUNDLE_DIR}
 prompt_file: ${PROMPT_FILE}
 mode: ${MODE}
+environments: ${ENVIRONMENTS}
 dry_run: ${DRY_RUN}
 force: ${FORCE}
 only_components: ${ONLY_COMPONENTS}
@@ -442,10 +468,14 @@ CONTEXT_BLOCK="$(cat <<EOF
 APP_REPO (read-only scan): ${APP_REPO}
 BUNDLE_DIR (write here ONLY): ${BUNDLE_DIR}
 GENERATION_MODE: ${MODE}
+ENVIRONMENTS: ${ENVIRONMENTS}
 
 Rules:
 - Do NOT modify APP_REPO.
 - Create ALL generated files under BUNDLE_DIR.
+- ONLY generate infrastructure for these environments: ${ENVIRONMENTS}
+  - Skip Terraform, workflows, and env files for environments not in this list.
+  - If only "prod" is specified, generate only production infrastructure (single VPS).
 - Existing workflows in APP_REPO MUST NOT be modified automatically (generate new deploy workflows + an install plan).
 - The bundle MUST detect database needs and wire BE↔DB (Postgres) properly; FE must never talk directly to DB.
 - After generating files, create/update .hetzner-deployer/manifest.json with file hashes.
@@ -473,6 +503,7 @@ fi
 echo
 bold "Bundle (infra repo): ${BUNDLE_DIR}"
 bold "Mode: ${MODE}"
+bold "Environments: ${ENVIRONMENTS}"
 bold "Run log: ${RUN_DIR}"
 echo
 bold "Launching Claude Code..."
@@ -584,9 +615,9 @@ while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
   echo
   bold "Validating generated bundle..."
 
-  # Run validation
-  VALIDATION_ERRORS="$(validate_bundle_verbose "$BUNDLE_DIR" 2>&1 | tee /dev/stderr | tail -n +1)"
-  VALIDATION_ERRORS="$(validate_bundle "$BUNDLE_DIR")"
+  # Run validation (pass environments so it only checks relevant files)
+  VALIDATION_ERRORS="$(validate_bundle_verbose "$BUNDLE_DIR" "$ENVIRONMENTS" 2>&1 | tee /dev/stderr | tail -n +1)"
+  VALIDATION_ERRORS="$(validate_bundle "$BUNDLE_DIR" "$ENVIRONMENTS")"
   ERROR_COUNT="$(count_validation_errors "$VALIDATION_ERRORS")"
 
   if [[ "$ERROR_COUNT" -eq 0 ]]; then

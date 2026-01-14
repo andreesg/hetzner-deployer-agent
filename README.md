@@ -80,6 +80,11 @@ See `config/detected.json` in the generated bundle for exactly what was detected
 
 The target (Hetzner Cloud) and stack (Docker, Postgres, Caddy) are fixed. What's flexible is sizing and application-specific configuration:
 
+**Via CLI flags**:
+- `--environments prod` — Generate only production (single VPS, lower cost)
+- `--environments staging,prod` — Skip dev environment
+- Default generates all three: dev, staging, prod (3 separate VPS instances)
+
 **Automatic (via detection)**:
 - VPS size based on app complexity (CX22 for MVPs → CX32 for larger apps)
 - Services included based on dependencies (Redis added if Celery detected)
@@ -126,6 +131,12 @@ You'll be prompted for:
 # Create new bundle (autonomous mode - no prompts)
 ./run/run_hetzner_deployer_agent.sh --app-repo /path/to/your/app --output /path/to/infra-bundle
 
+# Production only (single VPS, no dev/staging)
+./run/run_hetzner_deployer_agent.sh --app-repo /path/to/app --output /path/to/bundle --environments prod
+
+# Staging + prod only
+./run/run_hetzner_deployer_agent.sh --app-repo /path/to/app --output /path/to/bundle --environments staging,prod
+
 # Create with specific model (sonnet, opus, haiku)
 ./run/run_hetzner_deployer_agent.sh --model sonnet --app-repo /path/to/app --output /path/to/bundle
 
@@ -142,6 +153,7 @@ You'll be prompted for:
 **Flags:**
 - `--app-repo` — Path to your application repository (required)
 - `--output` — Where to create the infrastructure bundle
+- `--environments` — Which environments to generate (default: `dev,staging,prod`)
 - `--model` — Claude model to use (default: your CLI default)
 - `--interactive` — Run with permission prompts (see note below)
 - `--dry-run` — Preview update changes without modifying files
@@ -225,12 +237,14 @@ Current limitations:
 - Best support for Python, Node.js, Go, and JVM apps (other languages work with manual Dockerfile)
 - Single-VPS per environment (no built-in load balancing yet)
 - PostgreSQL only for primary database (Redis supported for caching/queues)
+- Brief downtime during deploys (~5-30 seconds) — acceptable for MVPs, not for high-availability requirements
 - Requires Claude CLI authentication
 
 ## Roadmap
 
 Near-term:
 - [ ] Better error messages when detection fails
+- [ ] Zero-downtime deployments (blue-green or rolling updates)
 - [ ] Load balancer support for horizontal scaling
 - [ ] More framework detection (Rails, Laravel, Phoenix)
 - [ ] MySQL/MariaDB as alternative to Postgres
@@ -242,6 +256,7 @@ Completed:
 - [x] Redis support for Celery/Bull/caching
 - [x] Post-generation validation
 - [x] Self-correction loop (validate → retry with error feedback)
+- [x] Configurable environments (`--environments prod` for single VPS)
 
 Not planned:
 - Kubernetes support

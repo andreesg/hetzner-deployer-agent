@@ -4,41 +4,76 @@
 # These functions validate generated bundles and return errors that can be
 # fed back to Claude for self-correction.
 
-# Required files that must exist in every generated bundle
-REQUIRED_FILES=(
+# Base required files that must exist in every generated bundle
+BASE_REQUIRED_FILES=(
   "README.md"
   "Makefile"
   ".gitignore"
   "config/detected.json"
   "config/inputs.example.sh"
-  "config/envs/dev.env.example"
-  "config/envs/staging.env.example"
-  "config/envs/prod.env.example"
   "infra/terraform/modules/hetzner-vps/main.tf"
-  "infra/terraform/envs/dev/main.tf"
-  "infra/terraform/envs/staging/main.tf"
-  "infra/terraform/envs/prod/main.tf"
   "infra/cloud-init/user-data.yaml"
   "deploy/compose/docker-compose.yml"
   "deploy/compose/Caddyfile"
   "deploy/scripts/deploy.sh"
-  "ci/github-actions/workflows/deploy-dev.yml"
-  "ci/github-actions/workflows/deploy-staging.yml"
-  "ci/github-actions/workflows/deploy-prod.yml"
   ".hetzner-deployer/manifest.json"
 )
+
+# Environment-specific files (will be added based on ENVIRONMENTS)
+# Format: env:file
+ENV_SPECIFIC_FILES=(
+  "dev:config/envs/dev.env.example"
+  "dev:infra/terraform/envs/dev/main.tf"
+  "dev:ci/github-actions/workflows/deploy-dev.yml"
+  "staging:config/envs/staging.env.example"
+  "staging:infra/terraform/envs/staging/main.tf"
+  "staging:ci/github-actions/workflows/deploy-staging.yml"
+  "prod:config/envs/prod.env.example"
+  "prod:infra/terraform/envs/prod/main.tf"
+  "prod:ci/github-actions/workflows/deploy-prod.yml"
+)
+
+# build_required_files()
+# Builds the list of required files based on environments
+# Usage: build_required_files "dev,staging,prod"
+build_required_files() {
+  local environments="${1:-dev,staging,prod}"
+  local -a required_files=("${BASE_REQUIRED_FILES[@]}")
+
+  # Add environment-specific files
+  for entry in "${ENV_SPECIFIC_FILES[@]}"; do
+    local env="${entry%%:*}"
+    local file="${entry#*:}"
+
+    # Check if this environment is in the list
+    if [[ ",$environments," == *",$env,"* ]]; then
+      required_files+=("$file")
+    fi
+  done
+
+  # Return as newline-separated list
+  printf '%s\n' "${required_files[@]}"
+}
 
 # validate_bundle()
 # Validates a generated bundle and returns errors as newline-separated strings.
 # Returns empty string if validation passes.
 #
-# Usage: errors=$(validate_bundle "/path/to/bundle")
+# Usage: errors=$(validate_bundle "/path/to/bundle" "prod")
+#        errors=$(validate_bundle "/path/to/bundle" "dev,staging,prod")
 validate_bundle() {
   local bundle_dir="$1"
+  local environments="${2:-dev,staging,prod}"
   local errors=""
 
+  # Build required files list based on environments
+  local -a required_files
+  while IFS= read -r file; do
+    required_files+=("$file")
+  done < <(build_required_files "$environments")
+
   # Check required files exist
-  for file in "${REQUIRED_FILES[@]}"; do
+  for file in "${required_files[@]}"; do
     if [[ ! -f "${bundle_dir}/${file}" ]]; then
       errors+="MISSING FILE: ${file}"$'\n'
     fi
@@ -108,15 +143,23 @@ validate_bundle() {
 # Same as validate_bundle but prints progress to stderr
 validate_bundle_verbose() {
   local bundle_dir="$1"
+  local environments="${2:-dev,staging,prod}"
   local errors=""
   local pass_count=0
   local fail_count=0
 
   echo "Validating bundle: ${bundle_dir}" >&2
+  echo "Environments: ${environments}" >&2
   echo "---" >&2
 
+  # Build required files list based on environments
+  local -a required_files
+  while IFS= read -r file; do
+    required_files+=("$file")
+  done < <(build_required_files "$environments")
+
   # Check required files
-  for file in "${REQUIRED_FILES[@]}"; do
+  for file in "${required_files[@]}"; do
     if [[ -f "${bundle_dir}/${file}" ]]; then
       ((pass_count++))
     else

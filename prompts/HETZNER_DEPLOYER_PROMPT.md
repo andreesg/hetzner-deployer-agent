@@ -482,6 +482,54 @@ Always document assumptions in the `assumptions` array in detected.json.
 
 ---
 
+## SELF-VALIDATION (REQUIRED BEFORE COMPLETING)
+
+After generating all files, you MUST validate your output and fix any errors:
+
+### 1. Terraform Validation
+For each environment in BUNDLE_DIR/infra/terraform/envs/:
+```bash
+cd BUNDLE_DIR/infra/terraform/envs/<env>
+terraform init -backend=false
+terraform validate
+```
+
+If validation fails:
+- Read the error message carefully
+- Fix the Terraform files
+- Re-run validation until it passes
+
+Common issues to check:
+- Missing variable declarations
+- Undefined references
+- Syntax errors in HCL
+- Missing provider blocks
+
+### 2. Docker Compose Validation
+```bash
+docker compose -f BUNDLE_DIR/deploy/compose/docker-compose.yml config
+```
+
+If validation fails:
+- Fix YAML syntax errors
+- Ensure all referenced env vars have defaults or are documented
+- Check service dependencies are correct
+
+### 3. JSON Validation
+Verify `config/detected.json` and `.hetzner-deployer/manifest.json` are valid JSON.
+
+### 4. Shell Script Validation
+For each script in `deploy/scripts/`:
+```bash
+bash -n <script>
+```
+
+Fix any syntax errors before completing.
+
+**Do NOT output the final report until all validations pass.**
+
+---
+
 ## FINAL REPORT (REQUIRED)
 At the end, output a report with:
 

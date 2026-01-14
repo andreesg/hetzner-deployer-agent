@@ -189,6 +189,16 @@ elif [[ -z "$APP_REPO" ]]; then
   die "App repo path required. Use --app-repo or run in interactive mode."
 fi
 
+# Default MODE to "new" if --output was provided without --new/--update
+if [[ -z "$MODE" ]] && [[ -n "$BUNDLE_DIR" ]]; then
+  MODE="new"
+fi
+
+# Default MODE to "new" if still not set (non-interactive with --app-repo only)
+if [[ -z "$MODE" ]]; then
+  MODE="new"
+fi
+
 # Validate app repo
 APP_REPO="$(cd "$APP_REPO" 2>/dev/null && pwd)" || die "App repo path not found: $APP_REPO"
 

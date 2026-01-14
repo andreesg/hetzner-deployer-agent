@@ -540,15 +540,29 @@ while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
   fi
 
   if [[ "$INTERACTIVE" == "true" ]]; then
-    # Interactive mode: start Claude with instruction to read the prompt file
+    # Interactive mode: start Claude and tell user to paste the command
     info "Running in interactive mode - you can respond to prompts"
     warn "Note: In interactive mode, output capture is limited. Check the bundle directory for results."
     echo
-    bold "Starting Claude Code. Your prompt is ready."
-    info "Just press Enter or type 'proceed' to start generation."
+
+    # Prepare the command for the user
+    CLAUDE_INSTRUCTION="Read ${PROMPT_INPUT_FILE} and execute all instructions in it. Generate all required infrastructure files."
+
+    # Try to copy to clipboard (macOS)
+    if command -v pbcopy >/dev/null 2>&1; then
+      echo "$CLAUDE_INSTRUCTION" | pbcopy
+      success "Command copied to clipboard! Just paste (Cmd+V) when Claude starts."
+    else
+      info "When Claude starts, paste this command:"
+      echo
+      echo "  $CLAUDE_INSTRUCTION"
+    fi
     echo
-    # Pass a short instruction that tells Claude to read and execute the full prompt
-    claude "${CLAUDE_ARGS[@]}" "Read the file at ${PROMPT_INPUT_FILE} and execute all instructions in it. This is an infrastructure generation task - generate ALL required files as specified in that prompt."
+    bold "Starting Claude Code..."
+    echo
+
+    # Start Claude without a prompt - user will paste the instruction
+    claude "${CLAUDE_ARGS[@]}"
     # After claude exits, capture what we can
     echo "Interactive session completed" > "$CLAUDE_OUTPUT_FILE"
   else

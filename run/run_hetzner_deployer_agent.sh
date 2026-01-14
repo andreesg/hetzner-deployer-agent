@@ -85,12 +85,15 @@ Options:
   --app-repo <path>         Path to application repo (required)
   --output <path>           Output directory for new bundle (new mode only)
   --model <model>           Claude model to use (e.g., sonnet, opus, haiku)
-  --interactive             Run Claude interactively (can respond to prompts)
+  --interactive             Run Claude interactively (paste instruction when CLI opens)
   --dry-run                 Preview changes without making them (update mode only)
   --force                   Overwrite user-modified files (update mode only)
   --only <components>       Only regenerate specific components (comma-separated)
                             Components: ci, terraform, compose, scripts, docs
   -h, --help                Show this help message
+
+Note: In --interactive mode, the instruction is copied to clipboard. Paste (Cmd+V)
+      when Claude opens and press Enter to start generation.
 
 Examples:
   # Interactive mode (prompts for paths)

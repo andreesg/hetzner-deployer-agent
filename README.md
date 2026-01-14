@@ -143,9 +143,17 @@ You'll be prompted for:
 - `--app-repo` — Path to your application repository (required)
 - `--output` — Where to create the infrastructure bundle
 - `--model` — Claude model to use (default: your CLI default)
-- `--interactive` — Run with permission prompts (copies instruction to clipboard)
+- `--interactive` — Run with permission prompts (see note below)
 - `--dry-run` — Preview update changes without modifying files
 - `--force` — Overwrite user-modified files during update
+
+**Interactive Mode Note:**
+When using `--interactive`, the instruction is copied to your clipboard. When Claude CLI opens:
+1. Paste the instruction (Cmd+V on macOS)
+2. Press Enter to start generation
+3. Respond to any permission prompts as needed
+
+This workaround is needed because Claude CLI doesn't support passing large prompts while keeping stdin connected for interactive input.
 
 ### After Generation
 

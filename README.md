@@ -164,6 +164,8 @@ This workaround is needed because Claude CLI doesn't support passing large promp
    - Set GitHub secrets
    - Configure Hetzner API tokens and DNS
 
+*Pro tip: You can ask Claude to help you with steps 2-3 as well. It's Claude all the way down.*
+
 ## Safety Guarantees
 
 - **App repo is read-only** — The agent scans but never writes to your application repository

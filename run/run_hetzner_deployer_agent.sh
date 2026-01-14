@@ -58,6 +58,7 @@ AGENT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Source library functions
 source "${AGENT_ROOT}/lib/manifest.sh"
 source "${AGENT_ROOT}/lib/diff.sh"
+source "${AGENT_ROOT}/lib/validate.sh"
 
 PROMPT_FILE="${AGENT_ROOT}/prompts/HETZNER_DEPLOYER_PROMPT.md"
 RUNS_DIR="${AGENT_ROOT}/runs"
@@ -451,28 +452,114 @@ echo
 # Run Claude from bundle directory so any writes naturally land there.
 cd "$BUNDLE_DIR"
 
-# Use file-based prompt input to avoid shell argument length limits
-# The prompt can be 15KB+ which exceeds safe argument limits on some systems
-PROMPT_INPUT_FILE="${RUN_DIR}/prompt_input_${TS}.md"
-printf "%s\n" "$FINAL_PROMPT" > "$PROMPT_INPUT_FILE"
+# --- Agent Loop: Generate with retry on validation failure ---
+MAX_ATTEMPTS=3
+ATTEMPT=1
+VALIDATION_ERRORS=""
+GENERATION_SUCCESS=false
 
-info "Prompt saved to: ${PROMPT_INPUT_FILE}"
-info "Starting Claude Code (this may take several minutes)..."
+# Store original prompt for retries
+ORIGINAL_PROMPT="$FINAL_PROMPT"
+
+while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
+  bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  bold "Generation Attempt ${ATTEMPT} of ${MAX_ATTEMPTS}"
+  bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo
+
+  # Build prompt (add retry context if this is a retry)
+  if [[ $ATTEMPT -gt 1 ]] && [[ -n "$VALIDATION_ERRORS" ]]; then
+    RETRY_CONTEXT="$(format_errors_for_retry "$VALIDATION_ERRORS" "$ATTEMPT")"
+    CURRENT_PROMPT="${ORIGINAL_PROMPT}${RETRY_CONTEXT}"
+    warn "Adding ${#VALIDATION_ERRORS} validation errors to prompt for retry..."
+  else
+    CURRENT_PROMPT="$ORIGINAL_PROMPT"
+  fi
+
+  # Save prompt for this attempt
+  PROMPT_INPUT_FILE="${RUN_DIR}/prompt_attempt_${ATTEMPT}_${TS}.md"
+  printf "%s\n" "$CURRENT_PROMPT" > "$PROMPT_INPUT_FILE"
+
+  info "Prompt saved to: ${PROMPT_INPUT_FILE}"
+  info "Starting Claude Code (this may take several minutes)..."
+  echo
+
+  # Clean bundle directory for retry (keep .git and .hetzner-deployer)
+  if [[ $ATTEMPT -gt 1 ]]; then
+    info "Cleaning bundle directory for retry..."
+    find "$BUNDLE_DIR" -mindepth 1 -maxdepth 1 \
+      ! -name ".git" \
+      ! -name ".hetzner-deployer" \
+      -exec rm -rf {} \; 2>/dev/null || true
+  fi
+
+  # Run Claude with the prompt
+  CLAUDE_OUTPUT_FILE="${RUN_DIR}/claude_output_attempt_${ATTEMPT}_${TS}.log"
+
+  # Using --print flag for non-interactive mode if available, otherwise pipe directly
+  if claude --help 2>&1 | grep -q -- '--print'; then
+    claude --print -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
+  else
+    # Fallback: pipe prompt directly
+    cat "$PROMPT_INPUT_FILE" | claude 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
+  fi
+
+  CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
+  if [[ $CLAUDE_EXIT_CODE -ne 0 ]]; then
+    warn "Claude exited with code $CLAUDE_EXIT_CODE"
+  fi
+
+  # Symlink latest output
+  ln -sf "$CLAUDE_OUTPUT_FILE" "${RUN_DIR}/claude_output_latest.log" 2>/dev/null || true
+
+  echo
+  bold "Validating generated bundle..."
+
+  # Run validation
+  VALIDATION_ERRORS="$(validate_bundle_verbose "$BUNDLE_DIR" 2>&1 | tee /dev/stderr | tail -n +1)"
+  VALIDATION_ERRORS="$(validate_bundle "$BUNDLE_DIR")"
+  ERROR_COUNT="$(count_validation_errors "$VALIDATION_ERRORS")"
+
+  if [[ "$ERROR_COUNT" -eq 0 ]]; then
+    echo
+    success "✓ Validation PASSED on attempt ${ATTEMPT}"
+    GENERATION_SUCCESS=true
+    break
+  else
+    echo
+    warn "✗ Validation FAILED with ${ERROR_COUNT} error(s)"
+    echo
+    warn "Errors:"
+    echo "$VALIDATION_ERRORS" | while read -r err; do
+      [[ -n "$err" ]] && warn "  • $err"
+    done
+
+    if [[ $ATTEMPT -lt $MAX_ATTEMPTS ]]; then
+      echo
+      info "Will retry with errors fed back to Claude..."
+      echo
+    fi
+  fi
+
+  ATTEMPT=$((ATTEMPT + 1))
+done
+
+# Final status
 echo
-
-# Run Claude with the prompt file piped to stdin
-# Using --print flag for non-interactive mode if available, otherwise pipe directly
-if claude --help 2>&1 | grep -q -- '--print'; then
-  claude --print -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "${RUN_DIR}/claude_output_${TS}.log"
+bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if [[ "$GENERATION_SUCCESS" == "true" ]]; then
+  success "GENERATION SUCCESSFUL after ${ATTEMPT} attempt(s)"
 else
-  # Fallback: pipe prompt directly
-  cat "$PROMPT_INPUT_FILE" | claude 2>&1 | tee "${RUN_DIR}/claude_output_${TS}.log"
+  warn "GENERATION FAILED after ${MAX_ATTEMPTS} attempts"
+  warn "Manual intervention required. Check errors above."
+  echo
+  warn "You can:"
+  warn "  1. Fix issues manually in: ${BUNDLE_DIR}"
+  warn "  2. Run again with a modified prompt"
+  warn "  3. Check Claude output logs in: ${RUN_DIR}"
 fi
-
-CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
-if [[ $CLAUDE_EXIT_CODE -ne 0 ]]; then
-  warn "Claude exited with code $CLAUDE_EXIT_CODE - check logs for errors"
-fi
+bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo
 
 # --- Post-generation: Update manifest with generated files ---
 bold "Updating manifest with generated files..."
@@ -513,112 +600,20 @@ cleanup_history "$BUNDLE_DIR" 10
 success "Manifest updated successfully."
 echo
 
-# --- Post-generation validation ---
-bold "Validating generated bundle..."
-
-VALIDATION_ERRORS=()
-
-# Required files checklist (must exist)
-REQUIRED_FILES=(
-  "README.md"
-  "Makefile"
-  ".gitignore"
-  "config/detected.json"
-  "config/inputs.example.sh"
-  "config/envs/dev.env.example"
-  "config/envs/staging.env.example"
-  "config/envs/prod.env.example"
-  "infra/terraform/modules/hetzner-vps/main.tf"
-  "infra/terraform/envs/dev/main.tf"
-  "infra/terraform/envs/staging/main.tf"
-  "infra/terraform/envs/prod/main.tf"
-  "infra/cloud-init/user-data.yaml"
-  "deploy/compose/docker-compose.yml"
-  "deploy/compose/Caddyfile"
-  "deploy/scripts/deploy.sh"
-  "ci/github-actions/workflows/deploy-dev.yml"
-  "ci/github-actions/workflows/deploy-staging.yml"
-  "ci/github-actions/workflows/deploy-prod.yml"
-  ".hetzner-deployer/manifest.json"
-)
-
-MISSING_COUNT=0
-for file in "${REQUIRED_FILES[@]}"; do
-  if [[ ! -f "${BUNDLE_DIR}/${file}" ]]; then
-    VALIDATION_ERRORS+=("Missing required file: ${file}")
-    ((MISSING_COUNT++))
-  fi
-done
-
-if [[ $MISSING_COUNT -eq 0 ]]; then
-  success "✓ All ${#REQUIRED_FILES[@]} required files present"
-else
-  warn "✗ Missing ${MISSING_COUNT} required files"
-fi
-
-# Validate detected.json is valid JSON
-if [[ -f "${BUNDLE_DIR}/config/detected.json" ]]; then
-  if jq empty "${BUNDLE_DIR}/config/detected.json" 2>/dev/null; then
-    success "✓ detected.json is valid JSON"
-  else
-    VALIDATION_ERRORS+=("detected.json is not valid JSON")
-    warn "✗ detected.json is not valid JSON"
-  fi
-fi
-
-# Validate docker-compose.yml syntax (if docker compose available)
-if command -v docker >/dev/null 2>&1 && [[ -f "${BUNDLE_DIR}/deploy/compose/docker-compose.yml" ]]; then
-  if docker compose -f "${BUNDLE_DIR}/deploy/compose/docker-compose.yml" config --quiet 2>/dev/null; then
-    success "✓ docker-compose.yml syntax valid"
-  else
-    VALIDATION_ERRORS+=("docker-compose.yml has syntax errors")
-    warn "✗ docker-compose.yml has syntax errors (run: docker compose config)"
-  fi
-fi
-
-# Validate Terraform syntax (if terraform available)
-if command -v terraform >/dev/null 2>&1; then
-  for env in dev staging prod; do
-    TF_DIR="${BUNDLE_DIR}/infra/terraform/envs/${env}"
-    if [[ -d "$TF_DIR" ]]; then
-      if terraform -chdir="$TF_DIR" validate -no-color 2>/dev/null; then
-        success "✓ Terraform ${env} config valid"
-      else
-        # Don't fail on terraform validation - it might need init first
-        info "○ Terraform ${env} needs 'terraform init' before validation"
-      fi
-    fi
-  done
-fi
-
-# Summary
-echo
-if [[ ${#VALIDATION_ERRORS[@]} -eq 0 ]]; then
-  success "Bundle validation passed!"
-else
-  warn "Bundle validation completed with ${#VALIDATION_ERRORS[@]} issue(s):"
-  for err in "${VALIDATION_ERRORS[@]}"; do
-    warn "  - ${err}"
-  done
-  echo
-  warn "Review and fix these issues before using the bundle."
-fi
-
-# Save validation report
+# Save final validation report
 VALIDATION_REPORT="${RUN_DIR}/validation_${TS}.txt"
 {
   echo "Validation Report - ${TS}"
   echo "========================"
   echo ""
-  echo "Required Files Check: ${MISSING_COUNT} missing of ${#REQUIRED_FILES[@]}"
+  echo "Attempts: ${ATTEMPT}"
+  echo "Status: $([ "$GENERATION_SUCCESS" == "true" ] && echo "PASSED" || echo "FAILED")"
   echo ""
-  if [[ ${#VALIDATION_ERRORS[@]} -gt 0 ]]; then
-    echo "Errors:"
-    for err in "${VALIDATION_ERRORS[@]}"; do
-      echo "  - ${err}"
-    done
+  if [[ -n "$VALIDATION_ERRORS" ]]; then
+    echo "Final Errors:"
+    echo "$VALIDATION_ERRORS"
   else
-    echo "No errors found."
+    echo "No errors."
   fi
 } > "$VALIDATION_REPORT"
 

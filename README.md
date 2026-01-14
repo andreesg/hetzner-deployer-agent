@@ -123,8 +123,14 @@ You'll be prompted for:
 ### CLI Mode
 
 ```bash
-# Create new bundle
-./run/run_hetzner_deployer_agent.sh --new --app-repo /path/to/your/app
+# Create new bundle (autonomous mode - no prompts)
+./run/run_hetzner_deployer_agent.sh --app-repo /path/to/your/app --output /path/to/infra-bundle
+
+# Create with specific model (sonnet, opus, haiku)
+./run/run_hetzner_deployer_agent.sh --model sonnet --app-repo /path/to/app --output /path/to/bundle
+
+# Interactive mode (can respond to permission prompts)
+./run/run_hetzner_deployer_agent.sh --interactive --app-repo /path/to/app --output /path/to/bundle
 
 # Update existing bundle
 ./run/run_hetzner_deployer_agent.sh --update /path/to/bundle --app-repo /path/to/app
@@ -132,6 +138,14 @@ You'll be prompted for:
 # Preview changes without modifying
 ./run/run_hetzner_deployer_agent.sh --update /path/to/bundle --app-repo /path/to/app --dry-run
 ```
+
+**Flags:**
+- `--app-repo` — Path to your application repository (required)
+- `--output` — Where to create the infrastructure bundle
+- `--model` — Claude model to use (default: your CLI default)
+- `--interactive` — Run with permission prompts (copies instruction to clipboard)
+- `--dry-run` — Preview update changes without modifying files
+- `--force` — Overwrite user-modified files during update
 
 ### After Generation
 

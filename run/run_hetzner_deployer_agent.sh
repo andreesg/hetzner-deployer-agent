@@ -13,7 +13,7 @@
 # - BUNDLE_DIR is the output working directory (and becomes an infra repo).
 # - Claude is launched from BUNDLE_DIR and MUST write only there.
 #
-# Pattern A integration:
+# Github integration:
 # - GitHub Actions live in the app repo (added as new deploy workflows; no overwrites).
 # - Deploy workflows clone the infra bundle repo (bundle) and run its deploy scripts.
 #
@@ -154,7 +154,7 @@ command -v git >/dev/null 2>&1 || die "git not found."
 [[ -f "$PROMPT_FILE" ]] || die "Missing prompt: ${PROMPT_FILE}"
 mkdir -p "$RUNS_DIR"
 
-bold "Hetzner Deployer Agent (Pattern A)"
+bold "Hetzner Deployer Agent"
 echo
 
 # --- Interactive mode if no arguments ---
@@ -511,13 +511,9 @@ while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
   # Run Claude with the prompt
   CLAUDE_OUTPUT_FILE="${RUN_DIR}/claude_output_attempt_${ATTEMPT}_${TS}.log"
 
-  # Using --print flag for non-interactive mode if available, otherwise pipe directly
-  if claude --help 2>&1 | grep -q -- '--print'; then
-    claude --print -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
-  else
-    # Fallback: pipe prompt directly
-    cat "$PROMPT_INPUT_FILE" | claude 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
-  fi
+  # Use -p (--print) for non-interactive mode
+  # The prompt is passed as the argument after -p
+  claude -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
 
   CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
   if [[ $CLAUDE_EXIT_CODE -ne 0 ]]; then

@@ -81,6 +81,7 @@ Modes:
 
 Options:
   --app-repo <path>         Path to application repo (required)
+  --output <path>           Output directory for new bundle (new mode only)
   --dry-run                 Preview changes without making them (update mode only)
   --force                   Overwrite user-modified files (update mode only)
   --only <components>       Only regenerate specific components (comma-separated)
@@ -91,8 +92,8 @@ Examples:
   # Interactive mode (prompts for paths)
   $(basename "$0")
 
-  # Create new bundle
-  $(basename "$0") --new --app-repo /path/to/app
+  # Create new bundle with explicit output
+  $(basename "$0") --new --app-repo /path/to/app --output /path/to/infra-bundle
 
   # Update existing bundle
   $(basename "$0") --update /path/to/bundle --app-repo /path/to/app
@@ -115,6 +116,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --app-repo)
       APP_REPO="$2"
+      shift 2
+      ;;
+    --output)
+      BUNDLE_DIR="$2"
       shift 2
       ;;
     --dry-run)
@@ -191,7 +196,7 @@ APP_REPO="$(cd "$APP_REPO" 2>/dev/null && pwd)" || die "App repo path not found:
 if [[ "$MODE" == "new" ]]; then
   # NEW MODE
   if [[ -z "$BUNDLE_DIR" ]]; then
-    die "Bundle directory not set. Use interactive mode or specify --update <path>."
+    die "Bundle directory not set. Use --output <path> or run in interactive mode."
   fi
 
   if [[ -e "$BUNDLE_DIR" ]]; then

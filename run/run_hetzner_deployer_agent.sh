@@ -70,6 +70,7 @@ DRY_RUN="false"
 FORCE="false"
 ONLY_COMPONENTS=""
 APP_REPO=""
+MODEL=""
 
 print_usage() {
   cat <<EOF
@@ -82,6 +83,7 @@ Modes:
 Options:
   --app-repo <path>         Path to application repo (required)
   --output <path>           Output directory for new bundle (new mode only)
+  --model <model>           Claude model to use (e.g., sonnet, opus, haiku)
   --dry-run                 Preview changes without making them (update mode only)
   --force                   Overwrite user-modified files (update mode only)
   --only <components>       Only regenerate specific components (comma-separated)
@@ -120,6 +122,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --output)
       BUNDLE_DIR="$2"
+      shift 2
+      ;;
+    --model)
+      MODEL="$2"
       shift 2
       ;;
     --dry-run)
@@ -511,9 +517,16 @@ while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
   # Run Claude with the prompt
   CLAUDE_OUTPUT_FILE="${RUN_DIR}/claude_output_attempt_${ATTEMPT}_${TS}.log"
 
+  # Build Claude command with optional model flag
+  CLAUDE_CMD="claude -p"
+  if [[ -n "$MODEL" ]]; then
+    CLAUDE_CMD="claude --model $MODEL -p"
+    info "Using model: $MODEL"
+  fi
+
   # Use -p (--print) for non-interactive mode
-  # The prompt is passed as the argument after -p
-  claude -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
+  # Read prompt from file to avoid command line length limits
+  $CLAUDE_CMD "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
 
   CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
   if [[ $CLAUDE_EXIT_CODE -ne 0 ]]; then

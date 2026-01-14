@@ -71,6 +71,7 @@ FORCE="false"
 ONLY_COMPONENTS=""
 APP_REPO=""
 MODEL=""
+INTERACTIVE="false"
 
 print_usage() {
   cat <<EOF
@@ -84,6 +85,7 @@ Options:
   --app-repo <path>         Path to application repo (required)
   --output <path>           Output directory for new bundle (new mode only)
   --model <model>           Claude model to use (e.g., sonnet, opus, haiku)
+  --interactive             Run Claude interactively (can respond to prompts)
   --dry-run                 Preview changes without making them (update mode only)
   --force                   Overwrite user-modified files (update mode only)
   --only <components>       Only regenerate specific components (comma-separated)
@@ -127,6 +129,10 @@ while [[ $# -gt 0 ]]; do
     --model)
       MODEL="$2"
       shift 2
+      ;;
+    --interactive)
+      INTERACTIVE="true"
+      shift
       ;;
     --dry-run)
       DRY_RUN="true"
@@ -518,20 +524,29 @@ while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
   CLAUDE_OUTPUT_FILE="${RUN_DIR}/claude_output_attempt_${ATTEMPT}_${TS}.log"
 
   # Build Claude command arguments
-  # Use --dangerously-skip-permissions to allow autonomous operation without prompts
-  # Use --add-dir to grant access to APP_REPO (read) and BUNDLE_DIR (write)
   CLAUDE_ARGS=(
-    --dangerously-skip-permissions
     --add-dir "$APP_REPO"
     --add-dir "$BUNDLE_DIR"
   )
+
+  # Add --dangerously-skip-permissions only for non-interactive mode
+  if [[ "$INTERACTIVE" != "true" ]]; then
+    CLAUDE_ARGS+=(--dangerously-skip-permissions)
+  fi
+
   if [[ -n "$MODEL" ]]; then
     CLAUDE_ARGS+=(--model "$MODEL")
     info "Using model: $MODEL"
   fi
 
-  # Use -p (--print) for non-interactive mode with prompt from file
-  claude "${CLAUDE_ARGS[@]}" -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
+  if [[ "$INTERACTIVE" == "true" ]]; then
+    # Interactive mode: use 'script' to capture output while keeping stdin connected
+    info "Running in interactive mode - you can respond to prompts"
+    script -q "$CLAUDE_OUTPUT_FILE" claude "${CLAUDE_ARGS[@]}" -p "$(cat "$PROMPT_INPUT_FILE")"
+  else
+    # Non-interactive mode: pipe through tee
+    claude "${CLAUDE_ARGS[@]}" -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
+  fi
 
   CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
   if [[ $CLAUDE_EXIT_CODE -ne 0 ]]; then

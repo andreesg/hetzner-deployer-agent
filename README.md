@@ -57,39 +57,40 @@ The agent never modifies your application code. It only reads.
 | Monitoring | Prometheus + Grafana |
 | Backups | restic to Hetzner Object Storage |
 
-These are the defaults. The agent adapts based on what it detects in your app.
+The infrastructure stack is fixed. What adapts is how the agent configures it based on your application's needs.
 
 ## What Gets Auto-Detected
 
-The agent scans your app repo and adjusts the generated infrastructure:
+The agent scans your app repo and tailors the Hetzner deployment to your application:
 
-| Detection | How It Adapts |
-|-----------|---------------|
-| **Language/Framework** | Python/FastAPI, Node/Express, Go, etc. → correct Dockerfile, build commands |
-| **Database signals** | alembic, prisma, psycopg2 → wires Postgres with proper migrations |
-| **Background workers** | Celery, Bull, Sidekiq → adds worker containers and Redis |
+| What It Detects | What It Configures |
+|-----------------|-------------------|
+| **Language/Framework** | Dockerfile, build commands, runtime settings |
+| **Database signals** (alembic, prisma, psycopg2) | Postgres wiring, migration commands |
+| **Background workers** (Celery, Bull, Sidekiq) | Worker containers, Redis service |
 | **Existing Dockerfiles** | Reuses yours instead of generating new ones |
-| **Capacity hints** | "MVP", "enterprise", worker counts → sizes VPS appropriately |
+| **Capacity hints** ("MVP", worker counts, etc.) | VPS size, volume size, Postgres tuning |
 
 See `config/detected.json` in the generated bundle for exactly what was detected.
 
+**Note**: Existing infrastructure configs in your app repo (Terraform for AWS, Kubernetes manifests, etc.) are ignored. This tool generates a fresh Hetzner-specific bundle—it doesn't migrate or adapt existing infra.
+
 ## Customization
 
-While the stack choices are fixed, sizing and behavior are flexible:
+The target (Hetzner Cloud) and stack (Docker, Postgres, Caddy) are fixed. What's flexible is sizing and application-specific configuration:
 
-**Via detection** (automatic):
-- VPS type scales based on app complexity signals (CX22 → CX32 → CX42)
-- Volume size adjusts based on storage hints
-- Services added/removed based on dependencies (Redis, Celery, etc.)
+**Automatic (via detection)**:
+- VPS size based on app complexity (CX22 for MVPs → CX32 for larger apps)
+- Services included based on dependencies (Redis added if Celery detected)
+- Migration commands based on framework (alembic, prisma, etc.)
 
-**Via prompt modification** (advanced):
-- Edit `prompts/HETZNER_DEPLOYER_PROMPT.md` to change defaults
-- Adjust VPS types, Postgres tuning, or add new detection rules
+**Manual (via prompt modification)**:
+- Edit `prompts/HETZNER_DEPLOYER_PROMPT.md` to change default VPS sizes, Postgres tuning, or detection rules
 - The prompt is the source of truth—version it with your changes
 
-**Via generated bundle** (post-generation):
-- The bundle is yours to customize after generation
-- Modify Terraform, Compose files, or scripts as needed
+**Post-generation (edit the bundle)**:
+- The generated bundle is yours to modify
+- Terraform, Compose files, and scripts can all be customized
 - Update mode preserves your changes (generates `.new` files instead of overwriting)
 
 ## Quickstart

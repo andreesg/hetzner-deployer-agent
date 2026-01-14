@@ -37,8 +37,9 @@ This is not a PaaS. It's a DevOps automation tool for people who want to own the
 
 1. **Agent scans your app repo** — Detects language, framework, database needs, build commands
 2. **AI generates infrastructure** — Terraform, Docker Compose, deploy scripts, CI/CD workflows
-3. **You get a separate infra repo** — Review it, commit it, push it to GitHub
-4. **CI/CD deploys to Hetzner** — GitHub Actions in your app repo trigger deploys via the infra repo
+3. **Agent validates and self-corrects** — Checks output, retries with error feedback if needed (up to 3 attempts)
+4. **You get a separate infra repo** — Review it, commit it, push it to GitHub
+5. **CI/CD deploys to Hetzner** — GitHub Actions in your app repo trigger deploys via the infra repo
 
 The agent never modifies your application code. It only reads.
 
@@ -146,6 +147,7 @@ You'll be prompted for:
 - **App repo is read-only** — The agent scans but never writes to your application repository
 - **No secrets committed** — Credentials go in `.env` files and GitHub Secrets, not in git
 - **Audit trail** — Every run is logged under `runs/<app>/<timestamp>/` with the exact prompt and output
+- **Self-validation** — Output is validated; errors are fed back to Claude for automatic correction (up to 3 attempts)
 - **Incremental updates** — When updating, user-modified files are preserved (generates `.new` files instead of overwriting)
 - **No remote execution** — The agent runs locally; nothing is sent to Hetzner until you explicitly deploy
 
@@ -154,7 +156,7 @@ You'll be prompted for:
 ```
 hetzner-deployer-agent/
 ├── run/                    # Runner script
-├── lib/                    # Bash library functions
+├── lib/                    # Bash libraries (manifest, diff, validation)
 ├── prompts/                # Versioned AI prompts
 ├── templates/              # Examples and templates
 └── runs/                   # Audit logs (gitignored except .gitkeep)
@@ -215,6 +217,7 @@ Completed:
 - [x] Update mode with user modification preservation
 - [x] Redis support for Celery/Bull/caching
 - [x] Post-generation validation
+- [x] Self-correction loop (validate → retry with error feedback)
 
 Not planned:
 - Kubernetes support

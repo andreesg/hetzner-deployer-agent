@@ -517,16 +517,21 @@ while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
   # Run Claude with the prompt
   CLAUDE_OUTPUT_FILE="${RUN_DIR}/claude_output_attempt_${ATTEMPT}_${TS}.log"
 
-  # Build Claude command with optional model flag
-  CLAUDE_CMD="claude -p"
+  # Build Claude command arguments
+  # Use --dangerously-skip-permissions to allow autonomous operation without prompts
+  # Use --add-dir to grant access to APP_REPO (read) and BUNDLE_DIR (write)
+  CLAUDE_ARGS=(
+    --dangerously-skip-permissions
+    --add-dir "$APP_REPO"
+    --add-dir "$BUNDLE_DIR"
+  )
   if [[ -n "$MODEL" ]]; then
-    CLAUDE_CMD="claude --model $MODEL -p"
+    CLAUDE_ARGS+=(--model "$MODEL")
     info "Using model: $MODEL"
   fi
 
-  # Use -p (--print) for non-interactive mode
-  # Read prompt from file to avoid command line length limits
-  $CLAUDE_CMD "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
+  # Use -p (--print) for non-interactive mode with prompt from file
+  claude "${CLAUDE_ARGS[@]}" -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
 
   CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
   if [[ $CLAUDE_EXIT_CODE -ne 0 ]]; then

@@ -1,0 +1,46 @@
+# Audit logs (keep .gitkeep, ignore actual runs)
+runs/*
+!runs/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# Generated files during testing
+*.new
+*.diff
+
+# Secrets (should never be committed)
+*.env
+!*.env.example
+!*.env.sample
+*.pem
+*.key
+id_rsa*
+*.age
+secrets.yaml
+secrets.json
+
+# Terraform state (for any local testing)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# SOPS artifacts
+*.sops.*
+!*.sops.example

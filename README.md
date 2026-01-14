@@ -42,7 +42,7 @@ This is not a PaaS. It's a DevOps automation tool for people who want to own the
 
 The agent never modifies your application code. It only reads.
 
-## The Stack (Opinionated, Non-Negotiable)
+## The Stack (Opinionated Defaults)
 
 | Component | Choice |
 |-----------|--------|
@@ -57,7 +57,40 @@ The agent never modifies your application code. It only reads.
 | Monitoring | Prometheus + Grafana |
 | Backups | restic to Hetzner Object Storage |
 
-No alternatives. No configuration flags. This is the stack.
+These are the defaults. The agent adapts based on what it detects in your app.
+
+## What Gets Auto-Detected
+
+The agent scans your app repo and adjusts the generated infrastructure:
+
+| Detection | How It Adapts |
+|-----------|---------------|
+| **Language/Framework** | Python/FastAPI, Node/Express, Go, etc. → correct Dockerfile, build commands |
+| **Database signals** | alembic, prisma, psycopg2 → wires Postgres with proper migrations |
+| **Background workers** | Celery, Bull, Sidekiq → adds worker containers and Redis |
+| **Existing Dockerfiles** | Reuses yours instead of generating new ones |
+| **Capacity hints** | "MVP", "enterprise", worker counts → sizes VPS appropriately |
+
+See `config/detected.json` in the generated bundle for exactly what was detected.
+
+## Customization
+
+While the stack choices are fixed, sizing and behavior are flexible:
+
+**Via detection** (automatic):
+- VPS type scales based on app complexity signals (CX22 → CX32 → CX42)
+- Volume size adjusts based on storage hints
+- Services added/removed based on dependencies (Redis, Celery, etc.)
+
+**Via prompt modification** (advanced):
+- Edit `prompts/HETZNER_DEPLOYER_PROMPT.md` to change defaults
+- Adjust VPS types, Postgres tuning, or add new detection rules
+- The prompt is the source of truth—version it with your changes
+
+**Via generated bundle** (post-generation):
+- The bundle is yours to customize after generation
+- Modify Terraform, Compose files, or scripts as needed
+- Update mode preserves your changes (generates `.new` files instead of overwriting)
 
 ## Quickstart
 
@@ -162,17 +195,25 @@ your-infra-bundle/
 This project works, but expect rough edges. The core flow (scan → generate → deploy) is functional. Error handling and edge cases are still being improved.
 
 Current limitations:
-- Limited to Node.js, Python, Go, and JVM detection (other languages may work with manual adjustment)
-- Single-VPS deployments only (no load balancing yet)
-- Postgres only (no MySQL, Redis is optional)
+- Best support for Python, Node.js, Go, and JVM apps (other languages work with manual Dockerfile)
+- Single-VPS per environment (no built-in load balancing yet)
+- PostgreSQL only for primary database (Redis supported for caching/queues)
+- Requires Claude CLI authentication
 
 ## Roadmap
 
 Near-term:
 - [ ] Better error messages when detection fails
-- [ ] Redis support for caching/sessions
 - [ ] Load balancer support for horizontal scaling
-- [ ] More framework detection (Rails, Laravel)
+- [ ] More framework detection (Rails, Laravel, Phoenix)
+- [ ] MySQL/MariaDB as alternative to Postgres
+
+Completed:
+- [x] Auto-detection of language, framework, database
+- [x] Capacity planning based on app signals
+- [x] Update mode with user modification preservation
+- [x] Redis support for Celery/Bull/caching
+- [x] Post-generation validation
 
 Not planned:
 - Kubernetes support

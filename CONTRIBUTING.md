@@ -4,7 +4,14 @@ Thanks for considering a contribution. This document explains how to propose cha
 
 ## Project Philosophy
 
-This project is **opinionated by design**. The goal is a single, well-tested path to production—not a configurable framework. Before proposing changes, understand what this project will and won't accept.
+This project is **opinionated by design**. The stack choices (Hetzner, Docker Compose, Postgres, Caddy) are fixed. However, the agent **adapts** to what it detects in your app repo—VPS sizing, services, migrations, and more are determined dynamically.
+
+Customization happens through:
+1. **Detection** — The agent reads your app and adjusts accordingly
+2. **Prompt modification** — Edit `prompts/HETZNER_DEPLOYER_PROMPT.md` for different defaults
+3. **Post-generation** — Modify the generated bundle directly
+
+Before proposing changes, understand what this project will and won't accept.
 
 ### What We Accept
 
@@ -19,8 +26,8 @@ This project is **opinionated by design**. The goal is a single, well-tested pat
 
 - **Alternative cloud providers** — This is Hetzner-only
 - **Alternative orchestration** — No Kubernetes, Nomad, etc.
-- **Alternative databases** — Postgres only (Redis may be added for caching)
-- **Configuration options** for things that should be opinionated
+- **Alternative primary databases** — Postgres only (Redis is supported for caching/queues)
+- **Arbitrary configuration flags** — Customization happens via prompt modification or detected signals, not CLI flags
 - **Heavy dependencies** — No Node.js, Python runtimes, or complex tooling
 - **CI/CD for this repo** — Bash scripts don't need CI
 - **Vanity badges** — No "build passing" badges for a bash project

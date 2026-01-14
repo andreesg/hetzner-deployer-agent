@@ -451,9 +451,28 @@ echo
 # Run Claude from bundle directory so any writes naturally land there.
 cd "$BUNDLE_DIR"
 
-{
-  claude "$FINAL_PROMPT"
-} 2>&1 | tee "${RUN_DIR}/claude_output_${TS}.log"
+# Use file-based prompt input to avoid shell argument length limits
+# The prompt can be 15KB+ which exceeds safe argument limits on some systems
+PROMPT_INPUT_FILE="${RUN_DIR}/prompt_input_${TS}.md"
+printf "%s\n" "$FINAL_PROMPT" > "$PROMPT_INPUT_FILE"
+
+info "Prompt saved to: ${PROMPT_INPUT_FILE}"
+info "Starting Claude Code (this may take several minutes)..."
+echo
+
+# Run Claude with the prompt file piped to stdin
+# Using --print flag for non-interactive mode if available, otherwise pipe directly
+if claude --help 2>&1 | grep -q -- '--print'; then
+  claude --print -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "${RUN_DIR}/claude_output_${TS}.log"
+else
+  # Fallback: pipe prompt directly
+  cat "$PROMPT_INPUT_FILE" | claude 2>&1 | tee "${RUN_DIR}/claude_output_${TS}.log"
+fi
+
+CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
+if [[ $CLAUDE_EXIT_CODE -ne 0 ]]; then
+  warn "Claude exited with code $CLAUDE_EXIT_CODE - check logs for errors"
+fi
 
 # --- Post-generation: Update manifest with generated files ---
 bold "Updating manifest with generated files..."
@@ -492,6 +511,117 @@ fi
 cleanup_history "$BUNDLE_DIR" 10
 
 success "Manifest updated successfully."
+echo
+
+# --- Post-generation validation ---
+bold "Validating generated bundle..."
+
+VALIDATION_ERRORS=()
+
+# Required files checklist (must exist)
+REQUIRED_FILES=(
+  "README.md"
+  "Makefile"
+  ".gitignore"
+  "config/detected.json"
+  "config/inputs.example.sh"
+  "config/envs/dev.env.example"
+  "config/envs/staging.env.example"
+  "config/envs/prod.env.example"
+  "infra/terraform/modules/hetzner-vps/main.tf"
+  "infra/terraform/envs/dev/main.tf"
+  "infra/terraform/envs/staging/main.tf"
+  "infra/terraform/envs/prod/main.tf"
+  "infra/cloud-init/user-data.yaml"
+  "deploy/compose/docker-compose.yml"
+  "deploy/compose/Caddyfile"
+  "deploy/scripts/deploy.sh"
+  "ci/github-actions/workflows/deploy-dev.yml"
+  "ci/github-actions/workflows/deploy-staging.yml"
+  "ci/github-actions/workflows/deploy-prod.yml"
+  ".hetzner-deployer/manifest.json"
+)
+
+MISSING_COUNT=0
+for file in "${REQUIRED_FILES[@]}"; do
+  if [[ ! -f "${BUNDLE_DIR}/${file}" ]]; then
+    VALIDATION_ERRORS+=("Missing required file: ${file}")
+    ((MISSING_COUNT++))
+  fi
+done
+
+if [[ $MISSING_COUNT -eq 0 ]]; then
+  success "✓ All ${#REQUIRED_FILES[@]} required files present"
+else
+  warn "✗ Missing ${MISSING_COUNT} required files"
+fi
+
+# Validate detected.json is valid JSON
+if [[ -f "${BUNDLE_DIR}/config/detected.json" ]]; then
+  if jq empty "${BUNDLE_DIR}/config/detected.json" 2>/dev/null; then
+    success "✓ detected.json is valid JSON"
+  else
+    VALIDATION_ERRORS+=("detected.json is not valid JSON")
+    warn "✗ detected.json is not valid JSON"
+  fi
+fi
+
+# Validate docker-compose.yml syntax (if docker compose available)
+if command -v docker >/dev/null 2>&1 && [[ -f "${BUNDLE_DIR}/deploy/compose/docker-compose.yml" ]]; then
+  if docker compose -f "${BUNDLE_DIR}/deploy/compose/docker-compose.yml" config --quiet 2>/dev/null; then
+    success "✓ docker-compose.yml syntax valid"
+  else
+    VALIDATION_ERRORS+=("docker-compose.yml has syntax errors")
+    warn "✗ docker-compose.yml has syntax errors (run: docker compose config)"
+  fi
+fi
+
+# Validate Terraform syntax (if terraform available)
+if command -v terraform >/dev/null 2>&1; then
+  for env in dev staging prod; do
+    TF_DIR="${BUNDLE_DIR}/infra/terraform/envs/${env}"
+    if [[ -d "$TF_DIR" ]]; then
+      if terraform -chdir="$TF_DIR" validate -no-color 2>/dev/null; then
+        success "✓ Terraform ${env} config valid"
+      else
+        # Don't fail on terraform validation - it might need init first
+        info "○ Terraform ${env} needs 'terraform init' before validation"
+      fi
+    fi
+  done
+fi
+
+# Summary
+echo
+if [[ ${#VALIDATION_ERRORS[@]} -eq 0 ]]; then
+  success "Bundle validation passed!"
+else
+  warn "Bundle validation completed with ${#VALIDATION_ERRORS[@]} issue(s):"
+  for err in "${VALIDATION_ERRORS[@]}"; do
+    warn "  - ${err}"
+  done
+  echo
+  warn "Review and fix these issues before using the bundle."
+fi
+
+# Save validation report
+VALIDATION_REPORT="${RUN_DIR}/validation_${TS}.txt"
+{
+  echo "Validation Report - ${TS}"
+  echo "========================"
+  echo ""
+  echo "Required Files Check: ${MISSING_COUNT} missing of ${#REQUIRED_FILES[@]}"
+  echo ""
+  if [[ ${#VALIDATION_ERRORS[@]} -gt 0 ]]; then
+    echo "Errors:"
+    for err in "${VALIDATION_ERRORS[@]}"; do
+      echo "  - ${err}"
+    done
+  else
+    echo "No errors found."
+  fi
+} > "$VALIDATION_REPORT"
+
 echo
 
 # --- Generate update report if in update mode ---

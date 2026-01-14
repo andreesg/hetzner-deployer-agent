@@ -112,6 +112,51 @@ Notes:
 - Workflows are generated under the bundle because you cannot write into APP_REPO.
 - The bundle README must provide copy instructions into APP_REPO.
 
+### REQUIRED OUTPUT FILES (self-check before completing)
+
+At completion, BUNDLE_DIR **must** contain all of these files:
+
+```
+□ README.md
+□ Makefile
+□ .gitignore
+□ config/detected.json
+□ config/inputs.example.sh
+□ config/envs/dev.env.example
+□ config/envs/staging.env.example
+□ config/envs/prod.env.example
+□ infra/terraform/globals/versions.tf
+□ infra/terraform/globals/backend.tf
+□ infra/terraform/modules/hetzner-vps/main.tf
+□ infra/terraform/modules/hetzner-vps/variables.tf
+□ infra/terraform/modules/hetzner-vps/outputs.tf
+□ infra/terraform/envs/dev/main.tf
+□ infra/terraform/envs/dev/variables.tf
+□ infra/terraform/envs/staging/main.tf
+□ infra/terraform/envs/staging/variables.tf
+□ infra/terraform/envs/prod/main.tf
+□ infra/terraform/envs/prod/variables.tf
+□ infra/cloud-init/user-data.yaml
+□ deploy/compose/docker-compose.yml
+□ deploy/compose/Caddyfile
+□ deploy/compose/.env.example
+□ deploy/scripts/deploy.sh
+□ deploy/scripts/rollback.sh
+□ deploy/scripts/backup.sh
+□ deploy/scripts/restore.sh
+□ ci/github-actions/workflows/deploy-dev.yml
+□ ci/github-actions/workflows/deploy-staging.yml
+□ ci/github-actions/workflows/deploy-prod.yml
+□ secrets/README.md
+□ docs/runbooks/deployment.md
+□ docs/runbooks/backup-restore.md
+□ docs/runbooks/troubleshooting.md
+□ .hetzner-deployer/manifest.json
+□ .hetzner-deployer/detected-snapshot.json
+```
+
+Before finishing, mentally verify each file exists. If you skipped any, create it.
+
 ---
 
 ## APP DETECTION (CORE RESPONSIBILITY)
@@ -137,6 +182,76 @@ Output detection results to:
 ```
 bundle/config/detected.json
 ```
+
+### detected.json SCHEMA (must follow this structure)
+
+```json
+{
+  "generated_at": "ISO8601 timestamp",
+  "app_repo": "path that was scanned",
+
+  "backend": {
+    "detected": true,
+    "language": "python|node|go|java|ruby|php|rust",
+    "framework": "fastapi|express|gin|spring|rails|laravel|etc",
+    "runtime": "uvicorn|node|go|java|etc",
+    "dockerfile": "path/to/existing/Dockerfile|null",
+    "port": 8000,
+    "build_cmd": "pip install -r requirements.txt|npm ci|etc",
+    "start_cmd": "uvicorn app.main:app|node server.js|etc",
+    "health_endpoint": "/health|/api/health|null",
+    "env_vars": ["DATABASE_URL", "SECRET_KEY", "..."]
+  },
+
+  "frontend": {
+    "detected": true,
+    "framework": "react|vue|angular|svelte|nextjs|static|null",
+    "dockerfile": "path/to/existing/Dockerfile|null",
+    "build_cmd": "npm run build|null",
+    "output_dir": "build|dist|public|null",
+    "static": true,
+    "port": 80
+  },
+
+  "database": {
+    "required": true,
+    "type": "postgres",
+    "signals_found": ["alembic.ini", "psycopg2 in requirements.txt"],
+    "migration_framework": "alembic|prisma|django|rails|knex|null",
+    "migration_cmd": "alembic upgrade head|null"
+  },
+
+  "services": {
+    "redis": { "required": true, "reason": "celery broker" },
+    "celery": { "required": true, "workers": ["celery-worker", "celery-beat"] }
+  },
+
+  "existing_ci": {
+    "workflows_found": ["ci.yml", "ci-cd.yml"],
+    "has_docker_build": true,
+    "has_deploy": true,
+    "deploy_target": "aws|gcp|azure|heroku|other"
+  },
+
+  "capacity": {
+    "detected_signals": ["description of signals found"],
+    "recommendation": "starter|standard|performance",
+    "vps_type": { "dev": "CX22", "staging": "CX22", "prod": "CX32" },
+    "volume_gb": { "dev": 20, "staging": 20, "prod": 40 },
+    "postgres_tuning": {
+      "shared_buffers": { "dev": "256MB", "staging": "256MB", "prod": "2GB" },
+      "max_connections": { "dev": 50, "staging": 50, "prod": 100 }
+    }
+  },
+
+  "assumptions": [
+    "Assumed X because Y was not found",
+    "Defaulted to Z for environment variable W"
+  ]
+}
+```
+
+This schema ensures consistent output across runs. Include all fields; use `null` for undetected values.
 
 ---
 
@@ -322,6 +437,48 @@ In bundle README, define the required secrets and a variable like `INFRA_REPO_GI
 - No secrets in Terraform state
 - No infra credentials on VPS
 - DB not exposed publicly
+
+---
+
+## DEFAULTS (when detection is ambiguous)
+
+When you cannot confidently detect a value, use these defaults rather than guessing or asking:
+
+### Infrastructure Defaults
+| Setting | Default Value | When to use |
+|---------|---------------|-------------|
+| VPS type (dev/staging) | CX22 (2 vCPU, 4GB) | No capacity signals found |
+| VPS type (prod) | CX32 (4 vCPU, 8GB) | No capacity signals found |
+| Volume size (dev/staging) | 20GB | No storage signals |
+| Volume size (prod) | 40GB | No storage signals |
+| Datacenter | fsn1 (Falkenstein) | No region preference stated |
+| Ubuntu version | 22.04 LTS | Always |
+
+### Application Defaults
+| Setting | Default Value | When to use |
+|---------|---------------|-------------|
+| Backend port | 8000 | No port detected in Dockerfile/config |
+| Frontend port | 80 | Static frontend served by Caddy |
+| Health check | TCP on main port | No /health endpoint detected |
+| Database | Include Postgres, gated by USE_POSTGRES=true | No strong DB signal |
+| Migrations | Placeholder with TODO | Migration framework not detected |
+
+### Environment Variable Defaults
+| Variable | Default Pattern | Notes |
+|----------|-----------------|-------|
+| DATABASE_URL | postgres://app_user:${POSTGRES_PASSWORD}@db:5432/app_db | Standard wiring |
+| REDIS_URL | redis://redis:6379/0 | If Redis detected |
+| LOG_LEVEL | INFO (dev/staging), WARNING (prod) | Standard practice |
+| ENVIRONMENT | dev/staging/production | Match deploy target |
+
+### Placeholder Patterns
+When a value must be provided by the user, use these placeholder formats:
+- Tokens/secrets: `CHANGE_ME_your-token-here`
+- Domains: `example.com` with comment "# TODO: Replace with your domain"
+- IPs/CIDRs: `YOUR_IP/32` with comment
+- Emails: `admin@example.com`
+
+Always document assumptions in the `assumptions` array in detected.json.
 
 ---
 

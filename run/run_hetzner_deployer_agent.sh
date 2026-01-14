@@ -540,11 +540,15 @@ while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
   fi
 
   if [[ "$INTERACTIVE" == "true" ]]; then
-    # Interactive mode: use 'script' to capture output while keeping stdin connected
+    # Interactive mode: run Claude without -p flag to allow responding to prompts
+    # The prompt is passed as argument (not with -p which is print-and-exit mode)
     info "Running in interactive mode - you can respond to prompts"
-    script -q "$CLAUDE_OUTPUT_FILE" claude "${CLAUDE_ARGS[@]}" -p "$(cat "$PROMPT_INPUT_FILE")"
+    warn "Note: In interactive mode, output capture is limited. Check the bundle directory for results."
+    claude "${CLAUDE_ARGS[@]}" "$(cat "$PROMPT_INPUT_FILE")"
+    # After claude exits, capture what we can
+    echo "Interactive session completed" > "$CLAUDE_OUTPUT_FILE"
   else
-    # Non-interactive mode: pipe through tee
+    # Non-interactive mode: use -p (print) flag with tee
     claude "${CLAUDE_ARGS[@]}" -p "$(cat "$PROMPT_INPUT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_FILE"
   fi
 

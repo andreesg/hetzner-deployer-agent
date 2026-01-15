@@ -551,7 +551,7 @@ if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
 if docker exec ${PROJECT_PREFIX}-backend curl -sf http://localhost:8000/health > /dev/null 2>&1; then
 ```
 
-Container name is `${PROJECT_PREFIX}-backend` (e.g., `bulir-backend`), NOT the image name.
+Container name is `${PROJECT_PREFIX}-backend` (e.g., `myapp-backend`), NOT the image name.
 
 ### Utility Scripts Must Be Deployed
 
@@ -668,8 +668,8 @@ The build script is in the **APP REPO**, not the infra bundle. Document this cle
 
 | Type | Pattern | Example |
 |------|---------|---------|
-| Image name | `${registry}/${user}/${project}-${service}:${tag}` | `ghcr.io/user/bulir-booking-backend:latest` |
-| Container name | `${prefix}-${service}` | `bulir-backend` |
+| Image name | `${registry}/${user}/${project}-${service}:${tag}` | `ghcr.io/user/myapp-backend:latest` |
+| Container name | `${prefix}-${service}` | `myapp-backend` |
 
 ### Usage Rules
 
@@ -677,22 +677,22 @@ The build script is in the **APP REPO**, not the infra bundle. Document this cle
 ```yaml
 services:
   backend:
-    image: ghcr.io/${REGISTRY_USER}/bulir-booking-backend:${IMAGE_TAG}
-    container_name: bulir-backend
+    image: ghcr.io/${REGISTRY_USER}/myapp-backend:${IMAGE_TAG}
+    container_name: myapp-backend
 ```
 
 **Scripts MUST use container names for:**
 ```bash
-docker exec bulir-backend ...      # NOT bulir-booking-backend
-docker logs bulir-backend ...      # NOT bulir-booking-backend
-docker ps --filter 'name=bulir'    # Filter by prefix
+docker exec myapp-backend ...      # NOT myapp-booking-backend
+docker logs myapp-backend ...      # NOT myapp-booking-backend
+docker ps --filter 'name=myapp'    # Filter by prefix
 ```
 
 ### Project Prefix Standard
 
-- **PROJECT_PREFIX**: Short identifier, e.g., `bulir`
+- **PROJECT_PREFIX**: Short identifier, e.g., `myapp`
 - **Container names**: `${PROJECT_PREFIX}-backend`, `${PROJECT_PREFIX}-frontend`, `${PROJECT_PREFIX}-postgres`
-- **Image names**: `${PROJECT_NAME}-backend` where PROJECT_NAME can be longer, e.g., `bulir-booking-backend`
+- **Image names**: `${PROJECT_NAME}-backend` where PROJECT_NAME can be longer, e.g., `myapp-booking-backend`
 
 ---
 

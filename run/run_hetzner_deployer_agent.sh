@@ -73,6 +73,7 @@ APP_REPO=""
 MODEL=""
 INTERACTIVE="false"
 ENVIRONMENTS="dev,staging,prod"
+CONTEXT_FILE=""
 
 print_usage() {
   cat <<EOF
@@ -87,6 +88,7 @@ Options:
   --output <path>           Output directory for new bundle (new mode only)
   --environments <list>     Environments to generate (default: dev,staging,prod)
                             Options: dev, staging, prod (comma-separated)
+  --context <file>          Path to project context file (see prompts/contexts/)
   --model <model>           Claude model to use (e.g., sonnet, opus, haiku)
   --interactive             Run Claude interactively (paste instruction when CLI opens)
   --dry-run                 Preview changes without making them (update mode only)
@@ -151,6 +153,14 @@ while [[ $# -gt 0 ]]; do
       ENVIRONMENTS="${1#*=}"
       shift
       ;;
+    --context)
+      CONTEXT_FILE="$2"
+      shift 2
+      ;;
+    --context=*)
+      CONTEXT_FILE="${1#*=}"
+      shift
+      ;;
     --dry-run)
       DRY_RUN="true"
       shift
@@ -193,6 +203,19 @@ for env in "${ENV_ARRAY[@]}"; do
   fi
 done
 ENVIRONMENTS="$(IFS=','; echo "${ENV_ARRAY[*]}" | tr -d ' ')"
+
+# --- Validate context file if provided ---
+if [[ -n "$CONTEXT_FILE" ]]; then
+  if [[ ! -f "$CONTEXT_FILE" ]]; then
+    # Try relative to agent root
+    if [[ -f "${AGENT_ROOT}/${CONTEXT_FILE}" ]]; then
+      CONTEXT_FILE="${AGENT_ROOT}/${CONTEXT_FILE}"
+    else
+      die "Context file not found: ${CONTEXT_FILE}"
+    fi
+  fi
+  CONTEXT_FILE="$(cd "$(dirname "$CONTEXT_FILE")" && pwd)/$(basename "$CONTEXT_FILE")"
+fi
 
 bold "Hetzner Deployer Agent"
 echo
@@ -487,6 +510,17 @@ ${UPDATE_MODE_CONTEXT}
 EOF
 )"
 
+# --- Append project context if provided ---
+if [[ -n "$CONTEXT_FILE" ]]; then
+  PROJECT_CONTEXT="$(cat <<EOF
+
+# PROJECT CONTEXT (from ${CONTEXT_FILE})
+$(cat "$CONTEXT_FILE")
+EOF
+)"
+  CONTEXT_BLOCK="${CONTEXT_BLOCK}${PROJECT_CONTEXT}"
+fi
+
 FINAL_PROMPT="$(cat "${PROMPT_FILE}")"$'\n\n'"${CONTEXT_BLOCK}"
 
 # Snapshot the exact prompt used
@@ -504,6 +538,9 @@ echo
 bold "Bundle (infra repo): ${BUNDLE_DIR}"
 bold "Mode: ${MODE}"
 bold "Environments: ${ENVIRONMENTS}"
+if [[ -n "$CONTEXT_FILE" ]]; then
+  bold "Context: ${CONTEXT_FILE}"
+fi
 bold "Run log: ${RUN_DIR}"
 echo
 bold "Launching Claude Code..."

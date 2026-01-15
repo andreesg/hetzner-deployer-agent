@@ -236,7 +236,7 @@ bundle/config/detected.json
   "capacity": {
     "detected_signals": ["description of signals found"],
     "recommendation": "starter|standard|performance",
-    "vps_type": { "dev": "CX22", "staging": "CX22", "prod": "CX32" },
+    "vps_type": { "dev": "cx22", "staging": "cx22", "prod": "cx32" },
     "volume_gb": { "dev": 20, "staging": 20, "prod": 40 },
     "postgres_tuning": {
       "shared_buffers": { "dev": "256MB", "staging": "256MB", "prod": "2GB" },
@@ -327,11 +327,13 @@ Scan these locations for scale indicators:
 
 ### Default sizing (when no signals found)
 
+**IMPORTANT: Hetzner server types are LOWERCASE. Using uppercase (CX32) causes failures.**
+
 | Environment | VPS Type | vCPU | RAM | Volume |
 |-------------|----------|------|-----|--------|
-| dev | CX22 | 2 | 4GB | 20GB |
-| staging | CX22 | 2 | 4GB | 20GB |
-| prod | CX32 | 4 | 8GB | 40GB |
+| dev | cx22 | 2 | 4GB | 20GB |
+| staging | cx22 | 2 | 4GB | 20GB |
+| prod | cx32 | 4 | 8GB | 40GB |
 
 ### Postgres sizing defaults
 | Environment | `shared_buffers` | `max_connections` | `work_mem` |
@@ -355,7 +357,7 @@ bundle/config/detected.json
   "capacity": {
     "detected_signals": ["MVP mentioned in README", "single developer"],
     "recommendation": "starter",
-    "vps_type": { "dev": "CX22", "staging": "CX22", "prod": "CX32" },
+    "vps_type": { "dev": "cx22", "staging": "cx22", "prod": "cx32" },
     "volume_gb": { "dev": 20, "staging": 20, "prod": 40 },
     "postgres_shared_buffers": { "dev": "256MB", "staging": "256MB", "prod": "2GB" }
   }
@@ -395,6 +397,71 @@ For **each environment (dev/staging/prod)**, use the capacity plan above:
   - `restic` backup of `/data` to Hetzner Object Storage
 - Retention: 30 days
 - Restore script + documented runbook
+
+---
+
+## DOCKER BUILD REQUIREMENTS (MANDATORY)
+
+**CRITICAL: Hetzner Cloud servers run AMD64 architecture.**
+
+ALL Docker build commands MUST specify the platform explicitly to prevent "exec format error" when images built on Apple Silicon (ARM64) are deployed to Hetzner.
+
+### In generated CI/CD workflows:
+```yaml
+- name: Build backend
+  run: docker build --platform linux/amd64 -f docker/backend/Dockerfile -t $IMAGE .
+```
+
+### In generated deploy scripts:
+```bash
+docker build --platform linux/amd64 -f docker/backend/Dockerfile -t $IMAGE .
+```
+
+### In docker-compose.yml for local builds (if applicable):
+```yaml
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+      platforms:
+        - linux/amd64
+```
+
+This is NON-NEGOTIABLE. Omitting `--platform linux/amd64` causes deployment failures.
+
+---
+
+## PRE-DEPLOYMENT VALIDATION (MANDATORY)
+
+The bundle MUST include infrastructure for validating migrations and builds BEFORE deployment.
+
+### Required: docker-compose.dev.yml (generate in bundle with copy instructions)
+
+Include a development compose file with:
+
+1. **PostgreSQL service** - For local migration testing
+2. **Migration validation service** - Profile: `check`
+3. **Test runner service** - Profile: `test`
+
+Usage pattern to document:
+```bash
+# Validate migrations
+docker compose -f docker-compose.dev.yml up -d postgres
+docker compose -f docker-compose.dev.yml --profile check run --rm migration-check
+
+# Run tests
+docker compose -f docker-compose.dev.yml --profile test run --rm test
+```
+
+### Required: pre-deploy-check.sh in deploy/scripts/
+
+Generate a validation script that:
+1. Validates migrations against PostgreSQL (not SQLite)
+2. Runs the test suite
+3. Builds Docker images with correct platform (linux/amd64)
+4. Validates environment configuration completeness
+5. Basic security scan for hardcoded secrets
 
 ---
 
@@ -447,8 +514,8 @@ When you cannot confidently detect a value, use these defaults rather than guess
 ### Infrastructure Defaults
 | Setting | Default Value | When to use |
 |---------|---------------|-------------|
-| VPS type (dev/staging) | CX22 (2 vCPU, 4GB) | No capacity signals found |
-| VPS type (prod) | CX32 (4 vCPU, 8GB) | No capacity signals found |
+| VPS type (dev/staging) | cx22 (2 vCPU, 4GB) | No capacity signals found |
+| VPS type (prod) | cx32 (4 vCPU, 8GB) | No capacity signals found |
 | Volume size (dev/staging) | 20GB | No storage signals |
 | Volume size (prod) | 40GB | No storage signals |
 | Datacenter | fsn1 (Falkenstein) | No region preference stated |

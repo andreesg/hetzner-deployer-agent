@@ -137,6 +137,10 @@ You'll be prompted for:
 # Staging + prod only
 ./run/run_hetzner_deployer_agent.sh --app-repo /path/to/app --output /path/to/bundle --environments staging,prod
 
+# With project-specific context (known issues, deployment tips)
+./run/run_hetzner_deployer_agent.sh --app-repo /path/to/app --output /path/to/bundle \
+  --context prompts/contexts/my-project.md
+
 # Create with specific model (sonnet, opus, haiku)
 ./run/run_hetzner_deployer_agent.sh --model sonnet --app-repo /path/to/app --output /path/to/bundle
 
@@ -154,6 +158,7 @@ You'll be prompted for:
 - `--app-repo` — Path to your application repository (required)
 - `--output` — Where to create the infrastructure bundle
 - `--environments` — Which environments to generate (default: `dev,staging,prod`)
+- `--context` — Path to project context file (see `prompts/contexts/`)
 - `--model` — Claude model to use (default: your CLI default)
 - `--interactive` — Run with permission prompts (see note below)
 - `--dry-run` — Preview update changes without modifying files
@@ -194,6 +199,8 @@ hetzner-deployer-agent/
 ├── run/                    # Runner script
 ├── lib/                    # Bash libraries (manifest, diff, validation)
 ├── prompts/                # Versioned AI prompts
+│   └── contexts/           # Project-specific context files
+├── docs/                   # Historical reference documentation
 ├── templates/              # Examples and templates
 └── runs/                   # Audit logs (gitignored except .gitkeep)
 ```

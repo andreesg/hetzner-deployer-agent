@@ -44,3 +44,8 @@ secrets.json
 # SOPS artifacts
 *.sops.*
 !*.sops.example
+
+# Project context files (keep README and examples)
+prompts/contexts/*
+!prompts/contexts/README.md
+!prompts/contexts/*.example.md

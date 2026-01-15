@@ -150,7 +150,7 @@ At completion, BUNDLE_DIR **must** contain all of these files:
 □ secrets/README.md
 □ docs/runbooks/deployment.md
 □ docs/runbooks/backup-restore.md
-□ docs/runbooks/troubleshooting.md
+□ docs/runbooks/troubleshooting.md (MUST include real-world issues)
 □ .hetzner-deployer/manifest.json
 □ .hetzner-deployer/detected-snapshot.json
 ```
@@ -400,6 +400,76 @@ For **each environment (dev/staging/prod)**, use the capacity plan above:
 
 ---
 
+## DOCUMENTATION REQUIREMENTS (MANDATORY)
+
+### docs/runbooks/troubleshooting.md
+
+This file MUST include:
+
+1. **Quick Diagnostics Section**
+   ```bash
+   # Container status
+   docker ps -a --filter 'name=${PROJECT_PREFIX}'
+
+   # Backend logs
+   docker logs ${PROJECT_PREFIX}-backend --tail=50
+
+   # Health check
+   docker exec ${PROJECT_PREFIX}-backend curl -sf http://localhost:8000/health
+
+   # Database connection
+   docker exec ${PROJECT_PREFIX}-postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT 1"
+   ```
+
+2. **Common Issues and Solutions**
+   - Health check failures (use docker exec, not curl localhost)
+   - Image not updating (use --pull always)
+   - Migration failures
+   - Container permission issues (Prometheus/Grafana UIDs)
+   - Environment variable issues (ALLOWED_HOSTS format)
+
+3. **Pre-Deployment Checklist**
+   - [ ] Migrations validated against PostgreSQL
+   - [ ] Docker images built with --platform linux/amd64
+   - [ ] API URL set for frontend build
+   - [ ] Environment variables configured
+
+4. **Quick Recovery Commands**
+   ```bash
+   # Full restart
+   cd /opt/app/current && docker compose down && docker compose up -d
+
+   # Rollback
+   ./rollback.sh --target user@server
+
+   # View all logs
+   docker compose logs -f
+   ```
+
+### docs/runbooks/deployment.md
+
+This file MUST include:
+
+1. **Two-Repository Workflow**
+   - App repo: build and push images
+   - Infra repo: deploy to servers
+
+2. **Manual Deployment Steps**
+   ```bash
+   # 1. BUILD (from app repo)
+   ./scripts/build.sh --tag v1.0.0 --api-url https://api.domain.com --push
+
+   # 2. DEPLOY (from infra repo)
+   make deploy ENV=prod TAG=v1.0.0
+   ```
+
+3. **Emergency Server-First Workflow**
+   - When to use (hotfixes)
+   - How to sync changes back to repos
+   - Why repo-first is preferred
+
+---
+
 ## DOCKER BUILD REQUIREMENTS (MANDATORY)
 
 **CRITICAL: Hetzner Cloud servers run AMD64 architecture.**
@@ -462,6 +532,167 @@ Generate a validation script that:
 3. Builds Docker images with correct platform (linux/amd64)
 4. Validates environment configuration completeness
 5. Basic security scan for hardcoded secrets
+
+---
+
+## DEPLOYMENT SCRIPT REQUIREMENTS (CRITICAL)
+
+The generated `deploy.sh`, `rollback.sh`, and `restore.sh` scripts MUST follow these rules:
+
+### Health Checks — Use Docker Exec
+
+**CRITICAL:** Backend port (8000) is NOT exposed to the host, only to the Docker network. Health checks via `curl localhost:8000` will ALWAYS fail.
+
+```bash
+# WRONG - will always fail (port not exposed to host)
+if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+
+# CORRECT - check health inside the container
+if docker exec ${PROJECT_PREFIX}-backend curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+```
+
+Container name is `${PROJECT_PREFIX}-backend` (e.g., `bulir-backend`), NOT the image name.
+
+### Utility Scripts Must Be Deployed
+
+The `deploy.sh` script MUST copy `backup.sh` and `restore.sh` to the server before using them:
+
+```bash
+# Add to deploy.sh BEFORE any deployment attempt
+log_info "Deploying utility scripts..."
+run_remote "mkdir -p /opt/app/scripts"
+run_remote "mkdir -p /data/backups"
+scp -o StrictHostKeyChecking=accept-new "$BUNDLE_ROOT/deploy/scripts/backup.sh" "$TARGET:/opt/app/scripts/"
+scp -o StrictHostKeyChecking=accept-new "$BUNDLE_ROOT/deploy/scripts/restore.sh" "$TARGET:/opt/app/scripts/"
+run_remote "chmod +x /opt/app/scripts/*.sh"
+```
+
+### Docker Images — Force Fresh Pulls
+
+When using the same tag (e.g., `latest`), Docker caches old images. MUST force fresh pulls:
+
+```bash
+# In deploy.sh - always pull latest images
+run_remote "cd $RELEASE_DIR && docker compose pull --ignore-pull-failures"
+
+# Use --pull always flag with docker compose up
+run_remote "cd $RELEASE_DIR && docker compose up -d --remove-orphans --pull always"
+```
+
+### IMAGE_TAG Must Be Passed to ALL Commands
+
+ALL docker compose commands must receive the IMAGE_TAG environment variable:
+
+```bash
+# WRONG - uses default tag
+run_remote "cd $RELEASE_DIR && docker compose run --rm backend alembic upgrade head"
+
+# CORRECT - explicitly pass IMAGE_TAG
+run_remote "cd $RELEASE_DIR && IMAGE_TAG=$IMAGE_TAG docker compose run --rm backend alembic upgrade head"
+```
+
+### Error Handling — Diagnostic Output on Failure
+
+When health checks fail, show diagnostic information:
+
+```bash
+if [ $HEALTH_CHECK_ATTEMPTS -eq $MAX_ATTEMPTS ]; then
+    log_error "Health check failed after $MAX_ATTEMPTS attempts"
+    log_warn "Checking container status..."
+    run_remote "docker ps -a --filter 'name=${PROJECT_PREFIX}' --format 'table {{.Names}}\t{{.Status}}'"
+    run_remote "docker logs ${PROJECT_PREFIX}-backend --tail=20 2>&1 || true"
+    log_warn "Consider rolling back with: ./rollback.sh --target $TARGET"
+    exit 1
+fi
+```
+
+### Optional Services — Non-Fatal Failures
+
+Commands for optional services (Celery, Redis) must not fail deployment:
+
+```bash
+# Make Celery restart non-fatal
+docker compose start backend || true
+docker compose start celery-worker celery-beat 2>/dev/null || {
+    log_warn "Celery services not started (may not be configured)"
+}
+```
+
+---
+
+## BUILD SCRIPT REQUIREMENTS (CRITICAL)
+
+### Frontend API URL — Build-Time Baking
+
+**CRITICAL:** React/Vue/Angular apps bake environment variables at BUILD time, not runtime.
+
+The generated `build.sh` (in the app repo, NOT infra repo) MUST support `--api-url` argument:
+
+```bash
+# Add to build.sh argument parsing
+--api-url) API_URL="$2"; shift 2 ;;
+--api-url=*) API_URL="${1#*=}"; shift ;;
+
+# Warn if building frontend without API_URL
+if [ "$BUILD_FRONTEND" = true ] && [ -z "$API_URL" ]; then
+    log_warn "REACT_APP_API_URL not set - frontend will use default (localhost:8000)"
+    log_warn "For production builds, use: --api-url https://api.yourdomain.com"
+    log_warn "Or set REACT_APP_API_URL environment variable"
+    read -p "Continue anyway? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then exit 1; fi
+fi
+
+# Pass to Docker build
+docker build \
+    --platform linux/amd64 \
+    -f docker/frontend/Dockerfile \
+    ${API_URL:+--build-arg REACT_APP_API_URL="$API_URL"} \
+    -t "$FRONTEND_IMAGE" \
+    .
+```
+
+### Build Script Location
+
+The build script is in the **APP REPO**, not the infra bundle. Document this clearly:
+- **App Repo**: Contains `scripts/build.sh` for building and pushing Docker images
+- **Infra Repo**: Contains `deploy/scripts/deploy.sh` for deploying to servers
+
+---
+
+## NAMING CONVENTIONS (MANDATORY)
+
+### Image Names vs Container Names
+
+**CRITICAL:** These are DIFFERENT and scripts must use the correct one.
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| Image name | `${registry}/${user}/${project}-${service}:${tag}` | `ghcr.io/user/bulir-booking-backend:latest` |
+| Container name | `${prefix}-${service}` | `bulir-backend` |
+
+### Usage Rules
+
+**docker-compose.yml** uses both:
+```yaml
+services:
+  backend:
+    image: ghcr.io/${REGISTRY_USER}/bulir-booking-backend:${IMAGE_TAG}
+    container_name: bulir-backend
+```
+
+**Scripts MUST use container names for:**
+```bash
+docker exec bulir-backend ...      # NOT bulir-booking-backend
+docker logs bulir-backend ...      # NOT bulir-booking-backend
+docker ps --filter 'name=bulir'    # Filter by prefix
+```
+
+### Project Prefix Standard
+
+- **PROJECT_PREFIX**: Short identifier, e.g., `bulir`
+- **Container names**: `${PROJECT_PREFIX}-backend`, `${PROJECT_PREFIX}-frontend`, `${PROJECT_PREFIX}-postgres`
+- **Image names**: `${PROJECT_NAME}-backend` where PROJECT_NAME can be longer, e.g., `bulir-booking-backend`
 
 ---
 
